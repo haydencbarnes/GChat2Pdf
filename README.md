@@ -18,7 +18,9 @@ This program handles Hebrew right-to-left reversal (although very crudely) if He
                             Google Chat folder within the Google Takeout folder  
       -o OUT_DIR, --out_dir OUT_DIR  
                             Folder where chat files will be saved.  
-      -l LOG_LEVEL, --log_level LOG_LEVEL  
+      -l LOG_LEVEL, --log_level LOG_LEVEL
+                            Which logging level to show on the terminal.
+                            Default: INFO
       -s START_DATE, --start_date START_DATE  
                             Start date (YYYY-MM-DD). 
                             Default: None (any)
@@ -26,7 +28,8 @@ This program handles Hebrew right-to-left reversal (although very crudely) if He
                             End date (YYYY-MM-DD).  
                             Default: None (today)
       -z TIME_ZONE, --time_zone TIME_ZONE  
-                            Any pytz timezone (look them up).  
+                            Any pytz timezone (look them up at pytz.all_timezones).
+                            Default: UTC
       -p PAPER_SIZE, --page_size PAPER_SIZE  
                             'A4' or 'letter' are accepted.  
                             Default: A4

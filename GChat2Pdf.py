@@ -361,25 +361,25 @@ class CChat2Pdf:
       print(f"\b\b\b\b\b{i*100/num_dirs:.0f}%" , end = "", flush = True, file = sys.stderr)
 
 
-def __del__(self):
-  p = Path(PDF_TMP_FILE)
-  if p.exists():
-    p.unlink()
+  def __del__(self):
+    p = Path(PDF_TMP_FILE)
+    if p.exists():
+      p.unlink()
 
 
 
 def main():
-  parser = argparse.ArgumentParser()
+  parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
   parser.add_argument('-i', '--in_dir', type=Path, dest='in_dir', required = True, help='Google Chat folder within the Google Takeout folder')
   parser.add_argument('-o', '--out_dir', type=Path, dest='out_dir', required = True, help='Folder where chat files will be saved.')
   parser.add_argument('-l', '--log_level', type = str, required = False, default = logging.INFO)
   parser.add_argument('-s', '--start_date', type=dt.date.fromisoformat, dest='start_date', required = False, help = 'Start date (YYYY-MM-DD).')
   parser.add_argument('-e', '--end_date', type=dt.date.fromisoformat, dest = 'end_date', required = False, help = 'End date (YYYY-MM-DD).')
-  parser.add_argument('-z', '--time_zone', type = str, required = False, default = 'UTC', help = "Any pytz timezone (look them up).")
+  parser.add_argument('-z', '--time_zone', type = str, required = False, default = 'UTC', help = "Any pytz timezone (look them up in pytz.all_timezones).")
   parser.add_argument('-p', '--page_size', type = str, dest = 'paper_size', required = False, default = 'A4', help = "'A4' or 'letter' are accepted.")
   parser.add_argument('-m', '--max_filename_length', type = int, dest = 'max_filename_len', required = False, default = 127, help = "Max filename length")
   parser.add_argument('-a', '--all', dest = 'include_all', default = False, action=argparse.BooleanOptionalAction, help = "Save files which don't include me participating in the chats.")
-  parser.add_argument('-ih', '--max_img_height_in', type = int, dest = 'max_img_height_in', required = False, default = 2, help = 'Maximum height for embedded image thumbnails.')
+  parser.add_argument('-ih', '--max_img_height_in', type = int, dest = 'max_img_height_in', required = False, default = 2, help = 'Maximum height in inches for embedded image thumbnails.')
   args = parser.parse_args()
 
   conv = CChat2Pdf(args)

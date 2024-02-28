@@ -49,6 +49,8 @@ MESSAGES_FILE = "messages.json"
 GROUP_INFO_FILE = "group_info.json"
 MSG_STATE_DELETED = "DELETED"
 
+PDF_TMP_FILE = "pdf_1st_page.png"
+
 
 class HyperlinkedImage(Image, object):
   def __init__(self, filename, hyperlink=None, width=None, height=None, kind='direct',
@@ -85,6 +87,13 @@ class CChat2Pdf:
     self.page_width = (letter if self.args.paper_size == 'letter' else A4)[0]
     register_heif_opener()
     pdfmetrics.registerFont(TTFont('Hebrew', 'ARIAL.ttf'))
+    self.style_sheets = getSampleStyleSheet()
+    self.style_sheets.add(ParagraphStyle(name='MeHeader', parent = self.style_sheets['Heading4'], alignment=TA_LEFT))
+    self.style_sheets.add(ParagraphStyle(name='OtherHeader', parent = self.style_sheets['Heading4'], alignment=TA_RIGHT))
+    self.style_sheets.add(ParagraphStyle(name='MeNormal', parent = self.style_sheets['Normal'], alignment=TA_JUSTIFY, rightIndent=2.0*inch))
+    self.style_sheets.add(ParagraphStyle(name='OtherNormal', parent = self.style_sheets['Normal'], alignment=TA_JUSTIFY, leftIndent=2.0*inch))
+    self.style_sheets.add(ParagraphStyle(name='MeNormalHeb', parent = self.style_sheets['Normal'], alignment=TA_JUSTIFY, wordWrap="RTL", rightIndent=2.0*inch, fontName="Hebrew", fontSize = 12))
+    self.style_sheets.add(ParagraphStyle(name='OtherNormalHeb', parent = self.style_sheets['Normal'], alignment=TA_JUSTIFY, wordWrap="RTL", leftIndent=2.0*inch, fontName="Hebrew", fontSize = 12))
     self.unk_file_exts = set()
     self.logger.info("Init success.")
 
@@ -213,20 +222,13 @@ class CChat2Pdf:
                                               pagesize=letter if self.args.paper_size == 'letter' else A4,
                                               rightMargin=0.75*inch, leftMargin=0.75*inch,
                                               topMargin=1.0*inch, bottomMargin=0.75*inch)
-              sample_style_sheet = getSampleStyleSheet()
-              sample_style_sheet.add(ParagraphStyle(name='MeHeader', parent = sample_style_sheet['Heading4'], alignment=TA_LEFT))
-              sample_style_sheet.add(ParagraphStyle(name='OtherHeader', parent = sample_style_sheet['Heading4'], alignment=TA_RIGHT))
-              sample_style_sheet.add(ParagraphStyle(name='MeNormal', parent = sample_style_sheet['Normal'], alignment=TA_JUSTIFY, rightIndent=2.0*inch))
-              sample_style_sheet.add(ParagraphStyle(name='OtherNormal', parent = sample_style_sheet['Normal'], alignment=TA_JUSTIFY, leftIndent=2.0*inch))
-              sample_style_sheet.add(ParagraphStyle(name='MeNormalHeb', parent = sample_style_sheet['Normal'], alignment=TA_JUSTIFY, wordWrap="RTL", rightIndent=2.0*inch, fontName="Hebrew", fontSize = 12))
-              sample_style_sheet.add(ParagraphStyle(name='OtherNormalHeb', parent = sample_style_sheet['Normal'], alignment=TA_JUSTIFY, wordWrap="RTL", leftIndent=2.0*inch, fontName="Hebrew", fontSize = 12))
-              doc_components.append(Paragraph(title_str, sample_style_sheet['Title']))
-              doc_components.append(Paragraph(participants_str, sample_style_sheet['Heading5']))
+              doc_components.append(Paragraph(title_str, self.style_sheets['Title']))
+              doc_components.append(Paragraph(participants_str, self.style_sheets['Heading5']))
               file_created = True
 
             header_str = (msg['creator']['name'] + ((" (" + msg['creator']['email'] + ")") if 'email' in msg['creator'] else "") + " at " +
                         msg_dt_str + ":")
-            doc_components.append(Paragraph(header_str, sample_style_sheet[
+            doc_components.append(Paragraph(header_str, self.style_sheets[
               'MeHeader' if msg['creator']['name'] == self.user_name else 'OtherHeader'
               ]))
             
@@ -239,11 +241,11 @@ class CChat2Pdf:
                 text = text.replace('\t','&nbsp;'*5)
                 text = text.replace('\n', '<br />')
                 if is_hebrew:
-                  doc_components.append(Paragraph(text, sample_style_sheet[
+                  doc_components.append(Paragraph(text, self.style_sheets[
                   'MeNormalHeb' if msg['creator']['name'] == self.user_name else 'OtherNormalHeb' 
                   ]))
                 else:
-                  doc_components.append(Paragraph(text, sample_style_sheet[
+                  doc_components.append(Paragraph(text, self.style_sheets[
                   'MeNormal' if msg['creator']['name'] == self.user_name else 'OtherNormal' 
                   ]))
               elif 'attached_files' in msg:
@@ -263,26 +265,25 @@ class CChat2Pdf:
                     with fitz.open(img_file_path) as doc:
                       page = doc.load_page(0)  # number of page
                       pix = page.get_pixmap()
-                      output = "pdf_1st_page.png"
-                      pix.save(output)
-                    doc_components.append(self.GetScaledImage(output, img_file_path))
+                      pix.save(PDF_TMP_FILE)
+                    doc_components.append(self.GetScaledImage(PDF_TMP_FILE, img_file_path))
                   else: #not a file we want to or can show a thumbnail of
                     if img_file_path.suffix not in self.unk_file_exts:
                       suffix = img_file_path.suffix
                       self.logger.warning(f"File extension '{suffix}' without a thumbnail preview found.")
                       self.unk_file_exts.add(suffix)
                     file_link_str = '<u>File attached:</u> <link href="' + str(img_file_path) + '">' + img_file_path.name + '</link>'
-                    doc_components.append(Paragraph(file_link_str, sample_style_sheet[
+                    doc_components.append(Paragraph(file_link_str, self.style_sheets[
                     'MeNormal' if msg['creator']['name'] == self.user_name else 'OtherNormal' 
                     ]))
               elif 'annotations' in msg:
                 if 'video_call_metadata' in msg['annotations'][0]: #video meeting, it's in a list of annotations but always seems to be the first
-                  doc_components.append(Paragraph("<u>Video call started.</u>", sample_style_sheet[
+                  doc_components.append(Paragraph("<u>Video call started.</u>", self.style_sheets[
                     'MeNormal' if msg['creator']['name'] == self.user_name else 'OtherNormal' 
                   ]))
                 elif 'gsuite_integration_metadata' in msg['annotations'][0]:
                   if 'call_data' in msg['annotations'][0]['gsuite_integration_metadata']:  #call status
-                    doc_components.append(Paragraph(f"<u>{msg['annotations'][0]['gsuite_integration_metadata']['call_data']['call_status']}</u>", sample_style_sheet[
+                    doc_components.append(Paragraph(f"<u>{msg['annotations'][0]['gsuite_integration_metadata']['call_data']['call_status']}</u>", self.style_sheets[
                       'MeNormal' if msg['creator']['name'] == self.user_name else 'OtherNormal' 
                     ]))
                   elif 'tasks_data' in msg['annotations'][0]['gsuite_integration_metadata']: #tasks data
@@ -297,7 +298,7 @@ class CChat2Pdf:
                       task_str += " deleted."
                     else:
                       task_str += "."
-                    doc_components.append(Paragraph(f"<u>{task_str}</u>", sample_style_sheet[
+                    doc_components.append(Paragraph(f"<u>{task_str}</u>", self.style_sheets[
                       'MeNormal' if msg['creator']['name'] == self.user_name else 'OtherNormal' 
                     ]))
                   else:
@@ -306,7 +307,7 @@ class CChat2Pdf:
                   doc_components.append(self.GetScaledImage(msg['annotations'][0]['url_metadata']['image_url']))
                 elif 'drive_metadata' in msg['annotations'][0]:#link to a file on the drive
                   doc_components.append(Paragraph(f"<u>File shared from google drive: {msg['annotations'][0]['drive_metadata']['title']}" 
-                                                  " (file id:{msg['annotations'][0]['drive_metadata']['id']})</u>", sample_style_sheet[
+                                                  " (file id:{msg['annotations'][0]['drive_metadata']['id']})</u>", self.style_sheets[
                       'MeNormal' if msg['creator']['name'] == self.user_name else 'OtherNormal' 
                     ]))
                 else:
@@ -360,6 +361,11 @@ class CChat2Pdf:
       print(f"\b\b\b\b\b{i*100/num_dirs:.0f}%" , end = "", flush = True, file = sys.stderr)
 
 
+def __del__(self):
+  p = Path(PDF_TMP_FILE)
+  if p.exists():
+    p.unlink()
+
 
 
 def main():
@@ -369,7 +375,7 @@ def main():
   parser.add_argument('-l', '--log_level', type = str, required = False, default = logging.INFO)
   parser.add_argument('-s', '--start_date', type=dt.date.fromisoformat, dest='start_date', required = False, help = 'Start date (YYYY-MM-DD).')
   parser.add_argument('-e', '--end_date', type=dt.date.fromisoformat, dest = 'end_date', required = False, help = 'End date (YYYY-MM-DD).')
-  parser.add_argument('-z', '--time_zone', type = str, required = False, default = 'Israel', help = "Any pytz timezone (look them up).")
+  parser.add_argument('-z', '--time_zone', type = str, required = False, default = 'UTC', help = "Any pytz timezone (look them up).")
   parser.add_argument('-p', '--page_size', type = str, dest = 'paper_size', required = False, default = 'A4', help = "'A4' or 'letter' are accepted.")
   parser.add_argument('-m', '--max_filename_length', type = int, dest = 'max_filename_len', required = False, default = 127, help = "Max filename length")
   parser.add_argument('-a', '--all', dest = 'include_all', default = False, action=argparse.BooleanOptionalAction, help = "Save files which don't include me participating in the chats.")

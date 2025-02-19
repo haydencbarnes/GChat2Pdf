@@ -16,11 +16,8 @@ from reportlab.lib.units import inch
 from io import BytesIO
 from pillow_heif import register_heif_opener  # heic file reader
 import fitz  # pdf thumbnails
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
 
 TRUNC_FILE_NAME = 47  # file names on disk are truncated to this basename (stem)
-TRUNC_HEB_LINE = 60
 
 DM_PREFIX = "DM"
 SPACE_PREFIX = "Space"
@@ -95,7 +92,6 @@ class CChat2Pdf:
 
         self.page_width = (letter if self.args.paper_size == "letter" else A4)[0]
         register_heif_opener()
-        pdfmetrics.registerFont(TTFont("Hebrew", "ARIAL.ttf"))
         self.style_sheets = getSampleStyleSheet()
         self.style_sheets.add(
             ParagraphStyle(
@@ -125,28 +121,6 @@ class CChat2Pdf:
                 leftIndent=2.0 * inch,
             )
         )
-        self.style_sheets.add(
-            ParagraphStyle(
-                name="MeNormalHeb",
-                parent=self.style_sheets["Normal"],
-                alignment=TA_JUSTIFY,
-                wordWrap="RTL",
-                rightIndent=2.0 * inch,
-                fontName="Hebrew",
-                fontSize=12,
-            )
-        )
-        self.style_sheets.add(
-            ParagraphStyle(
-                name="OtherNormalHeb",
-                parent=self.style_sheets["Normal"],
-                alignment=TA_JUSTIFY,
-                wordWrap="RTL",
-                leftIndent=2.0 * inch,
-                fontName="Hebrew",
-                fontSize=12,
-            )
-        )
         self.unk_file_exts = set()
         self.logger.info("Init success.")
 
@@ -172,64 +146,15 @@ class CChat2Pdf:
             hAlign="CENTER",
         )
 
-    def FixHebrewText(self, text):
-        char_replace = {
-            "(": ")",
-            ")": "(",
-            "[": "]",
-            "]": "[",
-            "{": "}",
-            "}": "{",
-            "<": ">",
-            ">": "<",
-        }
-        if all(c < "\u0590" or c > "\u05ea" for c in text):  # No Hebrew
-            return False, text
-        # Handle Hebrew text very crudely:
-        text_r = "".join(
-            [char_replace[c] if c in char_replace else c for c in text[::-1]]
-        )
-        pos = 0
-        re_pat = re.compile(r"[ -'*-;=?-Z\\^-z|~]+", re.ASCII)
-        text_r_r = text_r
-        while pos < len(text_r_r):
-            ascii_seq = re_pat.search(text_r_r, pos)
-            if ascii_seq is None:
-                break
-            span = list(ascii_seq.span())
-            match_str = ascii_seq.group()
-            while len(match_str) > 0 and match_str[0] in " ?-.\"'":
-                match_str = match_str[1:]
-                span[0] += 1
-            while len(match_str) > 0 and match_str[-1] in " ?-.\"'":
-                match_str = match_str[:-1]
-                span[1] -= 1
-            if span[1] - span[0] > 1:
-                text_r_r = text_r_r[: span[0]] + match_str[::-1] + text_r_r[span[1] :]
-            pos = ascii_seq.end(0)
-        lines = text_r_r.splitlines()
-        final_str = ""
-        for line in lines[::-1]:
-            if len(line) <= TRUNC_HEB_LINE:
-                final_str += line + "\n"
-            else:
-                words = line.split()
-                sub_line_len = 0
-                sub_line = ""
-                while len(words) > 0 and sub_line_len <= TRUNC_HEB_LINE:
-                    if sub_line_len + 1 + len(words[-1]) <= TRUNC_HEB_LINE:
-                        sub_line = words[-1] + " " + sub_line
-                        sub_line_len += len(words[-1]) + 1
-                        words.pop()
-                        if len(words) == 0:
-                            final_str += sub_line + "\n"
-                    else:
-                        final_str += sub_line + "\n"
-                        sub_line_len = 0
-                        sub_line = ""
-        if final_str and final_str[-1] == "\n":
-            final_str = final_str[:-1]
-        return True, final_str
+    def preprocess_text(self, text):
+        """
+        Preprocesses text for PDF display.
+        Currently just replaces tabs and newlines for HTML formatting.
+        """
+        text = text.replace("\t", "&nbsp;" * 5)
+        text = text.replace("\n", "<br />")
+        return text
+
 
     def CreateOutput(self, dm_dir):
         msg_file_path = dm_dir.joinpath(MESSAGES_FILE)
@@ -326,21 +251,11 @@ class CChat2Pdf:
                         )
                         try:
                             if "text" in msg:
-                                is_hebrew, text = self.FixHebrewText(msg["text"])
-                                text = text.replace("\t", "&nbsp;" * 5)
-                                text = text.replace("\n", "<br />")
-                                style_key = (
-                                    (
-                                        "MeNormalHeb"
-                                        if msg["creator"]["name"] == self.user_name
-                                        else "OtherNormalHeb"
-                                    )
-                                    if is_hebrew
-                                    else (
-                                        "MeNormal"
-                                        if msg["creator"]["name"] == self.user_name
-                                        else "OtherNormal"
-                                    )
+                                text = self.preprocess_text(msg["text"]) # Using preprocess_text instead of FixHebrewText
+                                style_key = ( # Removed Hebrew style selection logic
+                                    "MeNormal"
+                                    if msg["creator"]["name"] == self.user_name
+                                    else "OtherNormal"
                                 )
                                 doc_components.append(
                                     Paragraph(text, self.style_sheets[style_key])

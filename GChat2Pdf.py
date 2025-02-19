@@ -70,7 +70,7 @@ class CChat2Pdf:
         )
         self.logger = logging.getLogger("Chat2Pdf")
         if not self.args.in_dir.is_dir():
-            self.logger.error(f"Can't open input folder {self.args.in_dir}.")
+            self.logger.error(f"Can't open/find input folder {self.args.in_dir}.")
             sys.exit(0)
         try:
             self.args.out_dir.mkdir(parents=True, exist_ok=True)

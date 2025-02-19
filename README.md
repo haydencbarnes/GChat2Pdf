@@ -3,10 +3,33 @@
 A Google Chat Takeout Json to PDF converter tool.
 It is written in Python and uses ReportLab to generate the PDFs.
 
-## Overview
+## First-Time Setup
 
-- **Download your chats:**  
-  Use [Google Takeout](https://takeout.google.com/) to download all your chats to JSON. Select Google Chat only and download the archive. Unzip the archive and move it to this folder.
+1.  **Install Python Packages:** Before running, you need to install the required Python packages. It's highly recommended to use a virtual environment to keep your project dependencies isolated.
+
+    *   **Create a virtual environment (recommended):**
+
+        ```bash
+        python3 -m venv venv
+        ```
+
+    *   **Activate the virtual environment:**
+
+        ```bash
+        source venv/bin/activate  # Linux/macOS
+        venv\Scripts\activate  # Windows
+        ```
+
+    *   **Install packages using pip:**
+
+        ```bash
+        pip install pathlib argparse ijson reportlab pillow-heif PyMuPDF pytz
+        ```
+
+2.  **Download your chats:**
+    Use [Google Takeout](https://takeout.google.com/) to download all your chats to JSON. Select Google Chat only and download the archive. Unzip the archive and move the "Google Chat" folder from the archive to the same folder as `GChat2Pdf.py`.
+
+## Overview
 
 - **Convert to PDF:**  
   Run this program to convert each chat into a separate PDF file.

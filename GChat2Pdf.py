@@ -6,7 +6,6 @@ import ijson  # streaming from file
 import json  # all in memory
 import datetime as dt
 import pytz
-import re
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Image
 from reportlab.lib.pagesizes import letter, A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -155,7 +154,6 @@ class CChat2Pdf:
         text = text.replace("\n", "<br />")
         return text
 
-
     def CreateOutput(self, dm_dir):
         msg_file_path = dm_dir.joinpath(MESSAGES_FILE)
         if not msg_file_path.exists():
@@ -251,8 +249,10 @@ class CChat2Pdf:
                         )
                         try:
                             if "text" in msg:
-                                text = self.preprocess_text(msg["text"]) # Using preprocess_text instead of FixHebrewText
-                                style_key = ( # Removed Hebrew style selection logic
+                                text = self.preprocess_text(
+                                    msg["text"]
+                                )  # Using preprocess_text instead of FixHebrewText
+                                style_key = (  # Removed Hebrew style selection logic
                                     "MeNormal"
                                     if msg["creator"]["name"] == self.user_name
                                     else "OtherNormal"

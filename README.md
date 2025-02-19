@@ -6,10 +6,14 @@ It is written in Python and uses ReportLab to generate the PDFs.
 ## Overview
 
 - **Download your chats:**  
-  Use Google Takeout to download all your chats.
+  Use [Google Takeout](https://takeout.google.com/) to download all your chats to JSON. Select Google Chat only and download the archive. Unzip the archive and move it to this folder.
 
 - **Convert to PDF:**  
   Run this program to convert each chat into a separate PDF file.
+
+  ```bash
+  python3 GChat2Pdf.py
+  ```
 
 - **Attached files:**  
   Any files attached to these chats (downloaded as part of the Takeout) are linked into the generated PDFs.
@@ -23,13 +27,13 @@ It is written in Python and uses ReportLab to generate the PDFs.
 
 ---
 
-## Usage
+## More Usage Options
 
 ```bash
 usage: GChat2Pdf.py [-h] -i IN_DIR -o OUT_DIR [-l LOG_LEVEL] [-s START_DATE] [-e END_DATE] [-z TIME_ZONE] [-p PAPER_SIZE] [-m MAX_FILENAME_LEN] [-a | --all] [-ih MAX_IMG_HEIGHT_IN]
 ```
 
-### Options
+### Options Definitions
 
 - **-h, --help**  
   Show this help message and exit.
@@ -78,7 +82,7 @@ usage: GChat2Pdf.py [-h] -i IN_DIR -o OUT_DIR [-l LOG_LEVEL] [-s START_DATE] [-e
 
 ## Example Commands
 
-To run the script using the default Google Chat folder from Takeout and save the PDFs in your current directory:
+To run the script using the default Google Chat folder from Takeout in this same folder and save the PDFs in your current directory:
 
 ```bash
 python3 GChat2Pdf.py

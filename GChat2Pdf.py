@@ -154,6 +154,76 @@ class CChat2Pdf:
         text = text.replace("\n", "<br />")
         return text
 
+    def sanitize_filename(self, filename):
+        """
+        Sanitizes a filename to be safe for both Mac and Windows file systems.
+
+        Args:
+            filename: The original filename string
+
+        Returns:
+            A sanitized filename string
+        """
+        # Replace path separators with underscores
+        filename = filename.replace("/", "_").replace("\\", "_")
+
+        # Remove characters invalid in both Windows and Mac
+        invalid_chars = '<>:"|?*'
+        for char in invalid_chars:
+            filename = filename.replace(char, "_")
+
+        # Also handle Windows reserved names (CON, PRN, AUX, etc.)
+        reserved_names = [
+            "CON",
+            "PRN",
+            "AUX",
+            "NUL",
+            "COM1",
+            "COM2",
+            "COM3",
+            "COM4",
+            "COM5",
+            "COM6",
+            "COM7",
+            "COM8",
+            "COM9",
+            "LPT1",
+            "LPT2",
+            "LPT3",
+            "LPT4",
+            "LPT5",
+            "LPT6",
+            "LPT7",
+            "LPT8",
+            "LPT9",
+        ]
+
+        # Check if the filename (without extension) matches a reserved name
+        name_parts = filename.split(".")
+        if name_parts[0].upper() in reserved_names:
+            name_parts[0] = name_parts[0] + "_"
+            filename = ".".join(name_parts)
+
+        # Remove leading and trailing spaces and periods (problematic in Windows)
+        filename = filename.strip(" .")
+
+        # Ensure the filename isn't empty after sanitization
+        if not filename:
+            filename = "unnamed_chat"
+
+        # Limit filename length (255 is generally safe for most modern filesystems)
+        # But we'll use a more conservative limit
+        max_length = min(self.args.max_filename_len, 240)
+        if len(filename) > max_length:
+            # If there's an extension, preserve it
+            if "." in filename[-5:]:  # Check last 5 chars for extension
+                name, ext = filename.rsplit(".", 1)
+                filename = name[: max_length - len(ext) - 1] + "." + ext
+            else:
+                filename = filename[:max_length]
+
+        return filename
+
     def CreateOutput(self, dm_dir):
         msg_file_path = dm_dir.joinpath(MESSAGES_FILE)
         if not msg_file_path.exists():
@@ -450,8 +520,20 @@ class CChat2Pdf:
                             raise e
         if file_created and (self.args.include_all or I_participated):
             output_buffer.build(doc_components)
-            # Write the PDF to the new output folder.
-            with open(str(self.output_folder.joinpath(file_name)), "wb") as outfile:
+            # Sanitize the filename before writing
+            sanitized_file_name = self.sanitize_filename(file_name)
+
+            # Create the output path
+            output_path = self.output_folder.joinpath(sanitized_file_name)
+
+            # Log if the filename was changed
+            if sanitized_file_name != file_name:
+                self.logger.info(
+                    f"Sanitized filename from '{file_name}' to '{sanitized_file_name}'"
+                )
+
+            # Write the file
+            with open(str(output_path), "wb") as outfile:
                 outfile.write(pdf_io_buffer.getbuffer())
 
     def run(self):

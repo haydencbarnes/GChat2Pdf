@@ -35,7 +35,8 @@ It is written in Python and uses ReportLab to generate the PDFs.
   Run this program to convert each chat into a separate PDF file.
 
   ```bash
-  python3 GChat2Pdf.py
+  python3 GChat2Pdf.py # Linux/macOS
+  python GChat2Pdf.py # Windows
   ```
 
 - **Attached files:**  

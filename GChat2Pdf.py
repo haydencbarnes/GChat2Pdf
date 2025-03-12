@@ -826,7 +826,7 @@ def main():
         "-a",
         "--all",
         dest="include_all",
-        default=False,
+        default=True,
         action="store_true",
         help="Save files which don't include me participating in the chats.",
     )

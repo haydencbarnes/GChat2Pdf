@@ -240,187 +240,269 @@ class CChat2Pdf:
     def CreateOutput(self, dm_dir):
         msg_file_path = dm_dir.joinpath(MESSAGES_FILE)
         if not msg_file_path.exists():
-            self.logger.debug("No messages.")
-            return
+            self.logger.debug(f"No messages in {dm_dir.name}.")
+            return False
+        
         grp_info_file_path = dm_dir.joinpath(GROUP_INFO_FILE)
+        if not grp_info_file_path.exists():
+            self.logger.warning(f"No group info file in {dm_dir.name}.")
+            return False
+        
+        # Log the processing of this chat
+        self.logger.info(f"Processing chat: {dm_dir.name}")
         
         # Generate a unique ID for this chat based on directory name
-        chat_id = dm_dir.name.replace(" ", "_")[:10]  # Use first 10 chars for brevity
+        chat_id = dm_dir.name.replace(" ", "_")
         
-        with open(grp_info_file_path, "r", encoding="utf-8") as inf:
-            group_info = json.load(inf)
-            # Use group name if available; otherwise, default to "Chat"
-            title_str = group_info.get("name", "").strip() or "Chat"
-            
-            # Keep track of unique participants to avoid duplicates
-            unique_participants = set()
-            unique_participants.add(self.user_name)  # Add yourself
-            
-            # Build participants string and collect unique names
-            participants_str = f"<u>Participants:</u><br />\t{self.user_name} ({self.user_email})<br />"
-            
-            # Process all members, including anonymous ones
-            for participant in group_info.get("members", []):
-                if isinstance(participant, dict):
-                    # Only default to "Anonymous User" if no name is provided
-                    name = participant.get("name") or "Anonymous User"
-                    email = participant.get("email", "")
-                else:
-                    name = "Anonymous User"
-                    email = ""
+        try:
+            with open(grp_info_file_path, "r", encoding="utf-8") as inf:
+                group_info = json.load(inf)
+                # Use group name if available; otherwise, default to "Chat"
+                title_str = group_info.get("name", "").strip() or "Chat"
                 
-                # Skip yourself (already added)
-                if name == self.user_name:
-                    continue
+                # Keep track of unique participants to avoid duplicates
+                unique_participants = set()
+                unique_participants.add(self.user_name)  # Add yourself
+                
+                # Build participants string and collect unique names
+                participants_str = f"<u>Participants:</u><br />\t{self.user_name} ({self.user_email})<br />"
+                
+                # Process all members, including anonymous ones
+                for participant in group_info.get("members", []):
+                    if isinstance(participant, dict):
+                        # Only default to "Anonymous User" if no name is provided
+                        name = participant.get("name") or "Anonymous User"
+                        email = participant.get("email", "")
+                    else:
+                        name = "Anonymous User"
+                        email = ""
                     
-                # Add to participants string if not already included
-                if name not in unique_participants:
-                    unique_participants.add(name)
-                    participants_str += f"\t{name}" + (f" ({email})" if email else "") + "<br />"
-            
-            # Create a unique filename that includes chat ID and participant count
-            other_count = len(unique_participants) - 1  # Exclude yourself
-            
-            if other_count == 0:
-                # Handle case where you're the only participant (notes to self)
-                file_name = f"{title_str} (notes-{chat_id}).pdf"
-            elif other_count == 1:
-                # For 1-on-1 chats, include the other person's name
-                other_name = next(name for name in unique_participants if name != self.user_name)
-                file_name = f"{title_str} with {other_name} ({chat_id}).pdf"
-            else:
-                # For group chats, include the count of participants
-                file_name = f"{title_str} with {other_count} others ({chat_id}).pdf"
-            
-            participants_str = participants_str.replace("\t", "&nbsp;" * 5)
+                    # Skip yourself (already added)
+                    if name == self.user_name:
+                        continue
+                        
+                    # Add to participants string if not already included
+                    if name not in unique_participants:
+                        unique_participants.add(name)
+                        participants_str += f"\t{name}" + (f" ({email})" if email else "") + "<br />"
+                
+                # Create a unique filename that includes chat ID and participant count
+                other_count = len(unique_participants) - 1  # Exclude yourself
+                
+                if other_count == 0:
+                    # Handle case where you're the only participant (notes to self)
+                    file_name = f"{title_str} (notes-{chat_id}).pdf"
+                elif other_count == 1:
+                    # For 1-on-1 chats, include the other person's name
+                    other_name = next(name for name in unique_participants if name != self.user_name)
+                    file_name = f"{title_str} with {other_name} ({chat_id}).pdf"
+                else:
+                    # For group chats, include the count of participants
+                    file_name = f"{title_str} with {other_count} others ({chat_id}).pdf"
+                
+                participants_str = participants_str.replace("\t", "&nbsp;" * 5)
+        except Exception as e:
+            self.logger.error(f"Error processing group info for {dm_dir.name}: {e}")
+            # Default filename if group info can't be processed
+            file_name = f"Chat {chat_id}.pdf"
+            participants_str = f"<u>Participants:</u><br />\t{self.user_name} ({self.user_email})<br />"
 
+        # Always set I_participated to True if --all flag is used
         file_created = False
-        I_participated = False
+        I_participated = self.args.include_all  # Start with True if --all flag is used
         doc_components = []
         img_file_names = {}
-        with open(msg_file_path, "rb") as inf:
-            for msg in ijson.items(inf, "messages.item"):
-                if not (
-                    "message_state" in msg and msg["message_state"] == MSG_STATE_DELETED
-                ):
-                    msg_dt = dt.datetime.strptime(
-                        msg["created_date"].replace("\u202f", ""),
-                        "%A, %B %d, %Y at %I:%M:%S%p %Z",
-                    )
-                    msg_dt = pytz.utc.localize(msg_dt, is_dst=None).astimezone(
-                        pytz.timezone(self.args.time_zone)
-                    )
-                    msg_dt_str = msg_dt.strftime("%Y-%m-%d %H:%M:%S %Z%z")
-                    msg_d = msg_dt.date()
-                    if (
-                        self.args.start_date is None or msg_d >= self.args.start_date
-                    ) and (self.args.end_date is None or msg_d <= self.args.end_date):
-                        if msg["creator"]["name"] == self.user_name:
-                            I_participated = True
-                        if not file_created:
-                            pdf_io_buffer = BytesIO()
-                            output_buffer = SimpleDocTemplate(
-                                pdf_io_buffer,
-                                pagesize=letter
-                                if self.args.paper_size == "letter"
-                                else A4,
-                                rightMargin=0.75 * inch,
-                                leftMargin=0.75 * inch,
-                                topMargin=1.0 * inch,
-                                bottomMargin=0.75 * inch,
-                            )
-                            doc_components.append(
-                                Paragraph(title_str, self.style_sheets["Title"])
-                            )
-                            doc_components.append(
-                                Paragraph(
-                                    participants_str, self.style_sheets["Heading5"]
-                                )
-                            )
-                            file_created = True
-
-                        header_str = (
-                            msg["creator"]["name"]
-                            + (
-                                (" (" + msg["creator"]["email"] + ")")
-                                if "email" in msg["creator"]
-                                else ""
-                            )
-                            + " at "
-                            + msg_dt_str
-                            + ":"
-                        )
-                        doc_components.append(
-                            Paragraph(
-                                header_str,
-                                self.style_sheets["MeHeader"]
-                                if msg["creator"]["name"] == self.user_name
-                                else self.style_sheets["OtherHeader"],
-                            )
-                        )
+        
+        # Count total messages for debugging
+        total_messages = 0
+        processed_messages = 0
+        
+        try:
+            with open(msg_file_path, "rb") as inf:
+                for msg in ijson.items(inf, "messages.item"):
+                    total_messages += 1
+                    
+                    if not (
+                        "message_state" in msg and msg["message_state"] == MSG_STATE_DELETED
+                    ):
                         try:
-                            if "text" in msg:
-                                text = self.preprocess_text(
-                                    msg["text"]
-                                )  # Using preprocess_text instead of FixHebrewText
-                                style_key = (  # Removed Hebrew style selection logic
-                                    "MeNormal"
-                                    if msg["creator"]["name"] == self.user_name
-                                    else "OtherNormal"
+                            msg_dt = dt.datetime.strptime(
+                                msg["created_date"].replace("\u202f", ""),
+                                "%A, %B %d, %Y at %I:%M:%S%p %Z",
+                            )
+                            msg_dt = pytz.utc.localize(msg_dt, is_dst=None).astimezone(
+                                pytz.timezone(self.args.time_zone)
+                            )
+                            msg_dt_str = msg_dt.strftime("%Y-%m-%d %H:%M:%S %Z%z")
+                            msg_d = msg_dt.date()
+                            
+                            # Check date filters
+                            if (
+                                self.args.start_date is None or msg_d >= self.args.start_date
+                            ) and (self.args.end_date is None or msg_d <= self.args.end_date):
+                                processed_messages += 1
+                                
+                                # Check if you participated
+                                if msg["creator"]["name"] == self.user_name:
+                                    I_participated = True
+                                    
+                                # Create PDF components
+                                if not file_created:
+                                    pdf_io_buffer = BytesIO()
+                                    output_buffer = SimpleDocTemplate(
+                                        pdf_io_buffer,
+                                        pagesize=letter
+                                        if self.args.paper_size == "letter"
+                                        else A4,
+                                        rightMargin=0.75 * inch,
+                                        leftMargin=0.75 * inch,
+                                        topMargin=1.0 * inch,
+                                        bottomMargin=0.75 * inch,
+                                    )
+                                    doc_components.append(
+                                        Paragraph(title_str, self.style_sheets["Title"])
+                                    )
+                                    doc_components.append(
+                                        Paragraph(
+                                            participants_str, self.style_sheets["Heading5"]
+                                        )
+                                    )
+                                    file_created = True
+
+                                header_str = (
+                                    msg["creator"]["name"]
+                                    + (
+                                        (" (" + msg["creator"]["email"] + ")")
+                                        if "email" in msg["creator"]
+                                        else ""
+                                    )
+                                    + " at "
+                                    + msg_dt_str
+                                    + ":"
                                 )
                                 doc_components.append(
-                                    Paragraph(text, self.style_sheets[style_key])
+                                    Paragraph(
+                                        header_str,
+                                        self.style_sheets["MeHeader"]
+                                        if msg["creator"]["name"] == self.user_name
+                                        else self.style_sheets["OtherHeader"],
+                                    )
                                 )
-                            elif "attached_files" in msg:
-                                for i, f in enumerate(msg["attached_files"]):
-                                    try:
-                                        # Get the export name and strip any leading/trailing spaces and periods
-                                        export_name = f["export_name"].strip(" .")
-                                        
-                                        # First try the direct path
-                                        img_file_path = dm_dir.joinpath(export_name)
-                                        
-                                        # If the file doesn't exist, try with the truncated filename
-                                        if not img_file_path.exists() and len(export_name) > TRUNC_FILE_NAME:
-                                            # Try with truncated filename (Google Takeout often truncates filenames)
-                                            truncated_name = export_name[:TRUNC_FILE_NAME] + export_name[export_name.rfind('.'):]
-                                            alt_path = dm_dir.joinpath(truncated_name)
-                                            if alt_path.exists():
-                                                img_file_path = alt_path
-                                                self.logger.debug(f"Using truncated filename: {truncated_name}")
-                                        
-                                        # Check if file exists before processing
-                                        if not img_file_path.exists():
-                                            # Try to find the file by searching for similar filenames
-                                            potential_files = list(dm_dir.glob(f"*{img_file_path.suffix}"))
-                                            matching_files = [f for f in potential_files if export_name in f.name or f.name in export_name]
-                                            
-                                            if matching_files:
-                                                img_file_path = matching_files[0]
-                                                self.logger.debug(f"Found alternative file: {img_file_path.name}")
-                                            else:
-                                                # If file still not found, add a file link instead
-                                                file_link_str = (
-                                                    f'<u>File attachment not found:</u> {export_name}'
-                                                )
-                                                doc_components.append(
-                                                    Paragraph(
-                                                        file_link_str,
-                                                        self.style_sheets["MeNormal"] if msg["creator"]["name"] == self.user_name
-                                                        else self.style_sheets["OtherNormal"],
-                                                    )
-                                                )
-                                                continue  # Skip to next file
-                                        
-                                        # Process the file based on its type
-                                        if img_file_path.suffix.lower() in [".jpg", ".png", ".jpeg", ".heic", ".gif", ".eps"]:
+                                try:
+                                    if "text" in msg:
+                                        text = self.preprocess_text(
+                                            msg["text"]
+                                        )
+                                        style_key = (
+                                            "MeNormal"
+                                            if msg["creator"]["name"] == self.user_name
+                                            else "OtherNormal"
+                                        )
+                                        doc_components.append(
+                                            Paragraph(text, self.style_sheets[style_key])
+                                        )
+                                    elif "attached_files" in msg:
+                                        for i, f in enumerate(msg["attached_files"]):
                                             try:
-                                                doc_components.append(self.GetScaledImage(img_file_path))
+                                                # Get the export name and strip any leading/trailing spaces and periods
+                                                export_name = f["export_name"].strip(" .")
+                                                
+                                                # First try the direct path
+                                                img_file_path = dm_dir.joinpath(export_name)
+                                                
+                                                # If the file doesn't exist, try with the truncated filename
+                                                if not img_file_path.exists() and len(export_name) > TRUNC_FILE_NAME:
+                                                    # Try with truncated filename (Google Takeout often truncates filenames)
+                                                    truncated_name = export_name[:TRUNC_FILE_NAME] + export_name[export_name.rfind('.'):]
+                                                    alt_path = dm_dir.joinpath(truncated_name)
+                                                    if alt_path.exists():
+                                                        img_file_path = alt_path
+                                                        self.logger.debug(f"Using truncated filename: {truncated_name}")
+                                                
+                                                # Check if file exists before processing
+                                                if not img_file_path.exists():
+                                                    # Try to find the file by searching for similar filenames
+                                                    potential_files = list(dm_dir.glob(f"*{img_file_path.suffix}"))
+                                                    matching_files = [f for f in potential_files if export_name in f.name or f.name in export_name]
+                                                    
+                                                    if matching_files:
+                                                        img_file_path = matching_files[0]
+                                                        self.logger.debug(f"Found alternative file: {img_file_path.name}")
+                                                    else:
+                                                        # If file still not found, add a file link instead
+                                                        file_link_str = (
+                                                            f'<u>File attachment not found:</u> {export_name}'
+                                                        )
+                                                        doc_components.append(
+                                                            Paragraph(
+                                                                file_link_str,
+                                                                self.style_sheets["MeNormal"] if msg["creator"]["name"] == self.user_name
+                                                                else self.style_sheets["OtherNormal"],
+                                                            )
+                                                        )
+                                                        continue  # Skip to next file
+                                                
+                                                # Process the file based on its type
+                                                if img_file_path.suffix.lower() in [".jpg", ".png", ".jpeg", ".heic", ".gif", ".eps"]:
+                                                    try:
+                                                        doc_components.append(self.GetScaledImage(img_file_path))
+                                                    except Exception as e:
+                                                        self.logger.warning(f"Error processing image {img_file_path}: {e}")
+                                                        file_link_str = (
+                                                            f'<u>File attachment (error processing):</u> {export_name}'
+                                                        )
+                                                        doc_components.append(
+                                                            Paragraph(
+                                                                file_link_str,
+                                                                self.style_sheets["MeNormal"] if msg["creator"]["name"] == self.user_name
+                                                                else self.style_sheets["OtherNormal"],
+                                                            )
+                                                        )
+                                                elif img_file_path.suffix.lower() == ".pdf":
+                                                    try:
+                                                        with fitz.open(img_file_path) as doc:
+                                                            page = doc.load_page(0)
+                                                            pix = page.get_pixmap()
+                                                            pix.save(PDF_TMP_FILE)
+                                                        doc_components.append(self.GetScaledImage(PDF_TMP_FILE, img_file_path))
+                                                    except Exception as e:
+                                                        self.logger.warning(f"Could not open PDF for thumbnail: {e}")
+                                                        file_link_str = (
+                                                            '<u>File attached:</u> <link href="'
+                                                            + str(img_file_path)
+                                                            + '">'
+                                                            + img_file_path.name
+                                                            + "</link>"
+                                                        )
+                                                        doc_components.append(
+                                                            Paragraph(
+                                                                file_link_str,
+                                                                self.style_sheets["MeNormal"] if msg["creator"]["name"] == self.user_name
+                                                                else self.style_sheets["OtherNormal"],
+                                                            )
+                                                        )
+                                                else:
+                                                    if img_file_path.suffix not in self.unk_file_exts:
+                                                        suffix = img_file_path.suffix
+                                                        self.logger.warning(f"File extension '{suffix}' without a thumbnail preview found.")
+                                                        self.unk_file_exts.add(suffix)
+                                                    file_link_str = (
+                                                        '<u>File attached:</u> <link href="'
+                                                        + str(img_file_path)
+                                                        + '">'
+                                                        + img_file_path.name
+                                                        + "</link>"
+                                                    )
+                                                    doc_components.append(
+                                                        Paragraph(
+                                                            file_link_str,
+                                                            self.style_sheets["MeNormal"] if msg["creator"]["name"] == self.user_name
+                                                            else self.style_sheets["OtherNormal"],
+                                                        )
+                                                    )
                                             except Exception as e:
-                                                self.logger.warning(f"Error processing image {img_file_path}: {e}")
-                                                file_link_str = (
-                                                    f'<u>File attachment (error processing):</u> {export_name}'
-                                                )
+                                                self.logger.warning(f"Error processing attachment: {e}")
+                                                file_link_str = f'<u>Error processing attachment:</u> {str(e)}'
                                                 doc_components.append(
                                                     Paragraph(
                                                         file_link_str,
@@ -428,182 +510,143 @@ class CChat2Pdf:
                                                         else self.style_sheets["OtherNormal"],
                                                     )
                                                 )
-                                        elif img_file_path.suffix.lower() == ".pdf":
-                                            try:
-                                                with fitz.open(img_file_path) as doc:
-                                                    page = doc.load_page(0)
-                                                    pix = page.get_pixmap()
-                                                    pix.save(PDF_TMP_FILE)
-                                                doc_components.append(self.GetScaledImage(PDF_TMP_FILE, img_file_path))
-                                            except Exception as e:
-                                                self.logger.warning(f"Could not open PDF for thumbnail: {e}")
-                                                file_link_str = (
-                                                    '<u>File attached:</u> <link href="'
-                                                    + str(img_file_path)
-                                                    + '">'
-                                                    + img_file_path.name
-                                                    + "</link>"
-                                                )
-                                                doc_components.append(
-                                                    Paragraph(
-                                                        file_link_str,
-                                                        self.style_sheets["MeNormal"] if msg["creator"]["name"] == self.user_name
-                                                        else self.style_sheets["OtherNormal"],
-                                                    )
-                                                )
-                                        else:
-                                            if img_file_path.suffix not in self.unk_file_exts:
-                                                suffix = img_file_path.suffix
-                                                self.logger.warning(f"File extension '{suffix}' without a thumbnail preview found.")
-                                                self.unk_file_exts.add(suffix)
-                                            file_link_str = (
-                                                '<u>File attached:</u> <link href="'
-                                                + str(img_file_path)
-                                                + '">'
-                                                + img_file_path.name
-                                                + "</link>"
-                                            )
+                                    elif "annotations" in msg:
+                                        if "video_call_metadata" in msg["annotations"][0]:
                                             doc_components.append(
                                                 Paragraph(
-                                                    file_link_str,
-                                                    self.style_sheets["MeNormal"] if msg["creator"]["name"] == self.user_name
+                                                    "<u>Video call started.</u>",
+                                                    self.style_sheets["MeNormal"]
+                                                    if msg["creator"]["name"] == self.user_name
                                                     else self.style_sheets["OtherNormal"],
                                                 )
                                             )
-                                    except Exception as e:
-                                        self.logger.warning(f"Error processing attachment: {e}")
-                                        file_link_str = f'<u>Error processing attachment:</u> {str(e)}'
-                                        doc_components.append(
-                                            Paragraph(
-                                                file_link_str,
-                                                self.style_sheets["MeNormal"] if msg["creator"]["name"] == self.user_name
-                                                else self.style_sheets["OtherNormal"],
-                                            )
-                                        )
-                            elif "annotations" in msg:
-                                if "video_call_metadata" in msg["annotations"][0]:
-                                    doc_components.append(
-                                        Paragraph(
-                                            "<u>Video call started.</u>",
-                                            self.style_sheets["MeNormal"]
-                                            if msg["creator"]["name"] == self.user_name
-                                            else self.style_sheets["OtherNormal"],
-                                        )
-                                    )
-                                elif (
-                                    "gsuite_integration_metadata"
-                                    in msg["annotations"][0]
-                                ):
-                                    if (
-                                        "call_data"
-                                        in msg["annotations"][0][
+                                        elif (
                                             "gsuite_integration_metadata"
-                                        ]
-                                    ):
-                                        doc_components.append(
-                                            Paragraph(
-                                                f"<u>{msg['annotations'][0]['gsuite_integration_metadata']['call_data']['call_status']}</u>",
-                                                self.style_sheets["MeNormal"]
-                                                if msg["creator"]["name"]
-                                                == self.user_name
-                                                else self.style_sheets["OtherNormal"],
-                                            )
-                                        )
-                                    elif (
-                                        "tasks_data"
-                                        in msg["annotations"][0][
-                                            "gsuite_integration_metadata"
-                                        ]
-                                    ):
-                                        task_str = (
-                                            'Task "'
-                                            + msg["annotations"][0][
-                                                "gsuite_integration_metadata"
-                                            ]["tasks_data"]["task_properties"]["title"]
-                                            + '"'
-                                        )
-                                        if (
-                                            "assignee"
-                                            in msg["annotations"][0][
-                                                "gsuite_integration_metadata"
-                                            ]["tasks_data"]["task_properties"]
+                                            in msg["annotations"][0]
                                         ):
-                                            task_str += (
-                                                " assigned to "
-                                                + msg["annotations"][0][
+                                            if (
+                                                "call_data"
+                                                in msg["annotations"][0][
                                                     "gsuite_integration_metadata"
-                                                ]["tasks_data"]["task_properties"][
-                                                    "assignee"
-                                                ]["id"]
-                                            )
-                                        if (
-                                            "assignee_change"
-                                            in msg["annotations"][0][
-                                                "gsuite_integration_metadata"
-                                            ]["tasks_data"]
-                                        ):
-                                            task_str += (
-                                                " removed from "
-                                                + msg["annotations"][0][
-                                                    "gsuite_integration_metadata"
-                                                ]["tasks_data"]["assignee_change"][
-                                                    "old_assignee"
-                                                ]["id"]
-                                            )
-                                        if msg["annotations"][0][
-                                            "gsuite_integration_metadata"
-                                        ]["tasks_data"]["task_properties"]["completed"]:
-                                            task_str += " completed."
-                                        elif msg["annotations"][0][
-                                            "gsuite_integration_metadata"
-                                        ]["tasks_data"]["task_properties"]["deleted"]:
-                                            task_str += " deleted."
-                                        else:
-                                            task_str += "."
-                                        doc_components.append(
-                                            Paragraph(
-                                                f"<u>{task_str}</u>",
-                                                self.style_sheets["MeNormal"]
-                                                if msg["creator"]["name"]
-                                                == self.user_name
-                                                else self.style_sheets["OtherNormal"],
-                                            )
-                                        )
-                                    else:
-                                        self.logger.warning(
-                                            f"Unknown type under gsuite_integration_metadata. Message (complete):\n{msg}"
-                                        )
-                                elif "url_metadata" in msg["annotations"][0]:
-                                    try:
-                                        # Check if image_url exists in the metadata
-                                        if "image_url" in msg["annotations"][0]["url_metadata"]:
-                                            image_url = msg["annotations"][0]["url_metadata"]["image_url"]
-                                            
-                                            # Skip broken Google proxy URLs
-                                            if "googleusercontent.com/proxy" in image_url:
-                                                # Add a text link instead of trying to load the image
-                                                url_title = msg["annotations"][0]["url_metadata"].get("title", "Link")
-                                                url_link = msg["annotations"][0]["url_metadata"].get("url", image_url)
-                                                
-                                                url_link_str = f'<u>URL shared:</u> <link href="{url_link}">{url_title}</link>'
+                                                ]
+                                            ):
                                                 doc_components.append(
                                                     Paragraph(
-                                                        url_link_str,
-                                                        self.style_sheets["MeNormal"] if msg["creator"]["name"] == self.user_name
+                                                        f"<u>{msg['annotations'][0]['gsuite_integration_metadata']['call_data']['call_status']}</u>",
+                                                        self.style_sheets["MeNormal"]
+                                                        if msg["creator"]["name"]
+                                                        == self.user_name
+                                                        else self.style_sheets["OtherNormal"],
+                                                    )
+                                                )
+                                            elif (
+                                                "tasks_data"
+                                                in msg["annotations"][0][
+                                                    "gsuite_integration_metadata"
+                                                ]
+                                            ):
+                                                task_str = (
+                                                    'Task "'
+                                                    + msg["annotations"][0][
+                                                        "gsuite_integration_metadata"
+                                                    ]["tasks_data"]["task_properties"]["title"]
+                                                    + '"'
+                                                )
+                                                if (
+                                                    "assignee"
+                                                    in msg["annotations"][0][
+                                                        "gsuite_integration_metadata"
+                                                    ]["tasks_data"]["task_properties"]
+                                                ):
+                                                    task_str += (
+                                                        " assigned to "
+                                                        + msg["annotations"][0][
+                                                            "gsuite_integration_metadata"
+                                                        ]["tasks_data"]["task_properties"][
+                                                            "assignee"
+                                                        ]["id"]
+                                                    )
+                                                if (
+                                                    "assignee_change"
+                                                    in msg["annotations"][0][
+                                                        "gsuite_integration_metadata"
+                                                    ]["tasks_data"]
+                                                ):
+                                                    task_str += (
+                                                        " removed from "
+                                                        + msg["annotations"][0][
+                                                            "gsuite_integration_metadata"
+                                                        ]["tasks_data"]["assignee_change"][
+                                                            "old_assignee"
+                                                        ]["id"]
+                                                    )
+                                                if msg["annotations"][0][
+                                                    "gsuite_integration_metadata"
+                                                ]["tasks_data"]["task_properties"]["completed"]:
+                                                    task_str += " completed."
+                                                elif msg["annotations"][0][
+                                                    "gsuite_integration_metadata"
+                                                ]["tasks_data"]["task_properties"]["deleted"]:
+                                                    task_str += " deleted."
+                                                else:
+                                                    task_str += "."
+                                                doc_components.append(
+                                                    Paragraph(
+                                                        f"<u>{task_str}</u>",
+                                                        self.style_sheets["MeNormal"]
+                                                        if msg["creator"]["name"]
+                                                        == self.user_name
                                                         else self.style_sheets["OtherNormal"],
                                                     )
                                                 )
                                             else:
-                                                # Try to load the image
-                                                try:
-                                                    doc_components.append(self.GetScaledImage(image_url))
-                                                except Exception as e:
-                                                    self.logger.warning(f"Could not load image from URL {image_url}: {e}")
-                                                    # Fall back to text link
-                                                    url_title = msg["annotations"][0]["url_metadata"].get("title", "Link")
-                                                    url_link = msg["annotations"][0]["url_metadata"].get("url", image_url)
+                                                self.logger.warning(
+                                                    f"Unknown type under gsuite_integration_metadata. Message (complete):\n{msg}"
+                                                )
+                                        elif "url_metadata" in msg["annotations"][0]:
+                                            try:
+                                                # Check if image_url exists in the metadata
+                                                if "image_url" in msg["annotations"][0]["url_metadata"]:
+                                                    image_url = msg["annotations"][0]["url_metadata"]["image_url"]
                                                     
-                                                    url_link_str = f'<u>URL shared (image unavailable):</u> <link href="{url_link}">{url_title}</link>'
+                                                    # Skip broken Google proxy URLs
+                                                    if "googleusercontent.com/proxy" in image_url:
+                                                        # Add a text link instead of trying to load the image
+                                                        url_title = msg["annotations"][0]["url_metadata"].get("title", "Link")
+                                                        url_link = msg["annotations"][0]["url_metadata"].get("url", image_url)
+                                                        
+                                                        url_link_str = f'<u>URL shared:</u> <link href="{url_link}">{url_title}</link>'
+                                                        doc_components.append(
+                                                            Paragraph(
+                                                                url_link_str,
+                                                                self.style_sheets["MeNormal"] if msg["creator"]["name"] == self.user_name
+                                                                else self.style_sheets["OtherNormal"],
+                                                            )
+                                                        )
+                                                    else:
+                                                        # Try to load the image
+                                                        try:
+                                                            doc_components.append(self.GetScaledImage(image_url))
+                                                        except Exception as e:
+                                                            self.logger.warning(f"Could not load image from URL {image_url}: {e}")
+                                                            # Fall back to text link
+                                                            url_title = msg["annotations"][0]["url_metadata"].get("title", "Link")
+                                                            url_link = msg["annotations"][0]["url_metadata"].get("url", image_url)
+                                                            
+                                                            url_link_str = f'<u>URL shared (image unavailable):</u> <link href="{url_link}">{url_title}</link>'
+                                                            doc_components.append(
+                                                                Paragraph(
+                                                                    url_link_str,
+                                                                    self.style_sheets["MeNormal"] if msg["creator"]["name"] == self.user_name
+                                                                    else self.style_sheets["OtherNormal"],
+                                                                )
+                                                            )
+                                                else:
+                                                    # No image URL, just add a text link
+                                                    url_title = msg["annotations"][0]["url_metadata"].get("title", "Link")
+                                                    url_link = msg["annotations"][0]["url_metadata"].get("url", "#")
+                                                    
+                                                    url_link_str = f'<u>URL shared:</u> <link href="{url_link}">{url_title}</link>'
                                                     doc_components.append(
                                                         Paragraph(
                                                             url_link_str,
@@ -611,68 +654,75 @@ class CChat2Pdf:
                                                             else self.style_sheets["OtherNormal"],
                                                         )
                                                     )
-                                        else:
-                                            # No image URL, just add a text link
-                                            url_title = msg["annotations"][0]["url_metadata"].get("title", "Link")
-                                            url_link = msg["annotations"][0]["url_metadata"].get("url", "#")
-                                            
-                                            url_link_str = f'<u>URL shared:</u> <link href="{url_link}">{url_title}</link>'
+                                            except Exception as e:
+                                                self.logger.warning(f"Error processing URL metadata: {e}")
+                                                url_link_str = f'<u>URL shared (error processing):</u> {str(e)}'
+                                                doc_components.append(
+                                                    Paragraph(
+                                                        url_link_str,
+                                                        self.style_sheets["MeNormal"] if msg["creator"]["name"] == self.user_name
+                                                        else self.style_sheets["OtherNormal"],
+                                                    )
+                                                )
+                                        elif "drive_metadata" in msg["annotations"][0]:
                                             doc_components.append(
                                                 Paragraph(
-                                                    url_link_str,
-                                                    self.style_sheets["MeNormal"] if msg["creator"]["name"] == self.user_name
+                                                    f"<u>File shared from google drive: {msg['annotations'][0]['drive_metadata']['title']} (file id:{msg['annotations'][0]['drive_metadata']['id']})</u>",
+                                                    self.style_sheets["MeNormal"]
+                                                    if msg["creator"]["name"] == self.user_name
                                                     else self.style_sheets["OtherNormal"],
                                                 )
                                             )
-                                    except Exception as e:
-                                        self.logger.warning(f"Error processing URL metadata: {e}")
-                                        url_link_str = f'<u>URL shared (error processing):</u> {str(e)}'
-                                        doc_components.append(
-                                            Paragraph(
-                                                url_link_str,
-                                                self.style_sheets["MeNormal"] if msg["creator"]["name"] == self.user_name
-                                                else self.style_sheets["OtherNormal"],
+                                        else:
+                                            self.logger.warning(
+                                                f"Unknown type under annotations. Message (complete):\n{msg}"
                                             )
+                                    else:
+                                        self.logger.warning(
+                                            f"Unknown type. Message (complete): {msg}"
                                         )
-                                elif "drive_metadata" in msg["annotations"][0]:
-                                    doc_components.append(
-                                        Paragraph(
-                                            f"<u>File shared from google drive: {msg['annotations'][0]['drive_metadata']['title']} (file id:{msg['annotations'][0]['drive_metadata']['id']})</u>",
-                                            self.style_sheets["MeNormal"]
-                                            if msg["creator"]["name"] == self.user_name
-                                            else self.style_sheets["OtherNormal"],
-                                        )
-                                    )
-                                else:
-                                    self.logger.warning(
-                                        f"Unknown type under annotations. Message (complete):\n{msg}"
-                                    )
-                            else:
-                                self.logger.warning(
-                                    f"Unknown type. Message (complete): {msg}"
-                                )
-                        except ValueError:
-                            pass
+                                except ValueError:
+                                    pass
+                                except Exception as e:
+                                    self.logger.error(f"Error processing message content: {e}")
                         except Exception as e:
-                            print(msg)
-                            raise e
-        if file_created and (self.args.include_all or I_participated):
-            output_buffer.build(doc_components)
-            # Sanitize the filename before writing
-            sanitized_file_name = self.sanitize_filename(file_name)
-
-            # Create the output path
-            output_path = self.output_folder.joinpath(sanitized_file_name)
-
-            # Log if the filename was changed
-            if sanitized_file_name != file_name:
-                self.logger.info(
-                    f"Sanitized filename from '{file_name}' to '{sanitized_file_name}'"
-                )
-
-            # Write the file
-            with open(str(output_path), "wb") as outfile:
-                outfile.write(pdf_io_buffer.getbuffer())
+                            self.logger.warning(f"Error processing message in {dm_dir.name}: {e}")
+                            continue
+            
+            # Log message counts
+            self.logger.info(f"Chat {dm_dir.name}: Total messages: {total_messages}, Processed: {processed_messages}")
+            
+            # Check if we should create the file
+            if file_created and (self.args.include_all or I_participated):
+                self.logger.info(f"Creating PDF for {dm_dir.name}: {file_name}")
+                output_buffer.build(doc_components)
+                
+                # Sanitize the filename before writing
+                sanitized_file_name = self.sanitize_filename(file_name)
+                
+                # Create the output path
+                output_path = self.output_folder.joinpath(sanitized_file_name)
+                
+                # Log if the filename was changed
+                if sanitized_file_name != file_name:
+                    self.logger.info(
+                        f"Sanitized filename from '{file_name}' to '{sanitized_file_name}'"
+                    )
+                
+                # Write the file
+                with open(str(output_path), "wb") as outfile:
+                    outfile.write(pdf_io_buffer.getbuffer())
+                    return True  # Successfully created a file
+            else:
+                if not file_created:
+                    self.logger.info(f"No file created for {dm_dir.name}: No messages matched date criteria")
+                elif not I_participated and not self.args.include_all:
+                    self.logger.info(f"No file created for {dm_dir.name}: You did not participate and --all flag not used")
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"Error processing chat {dm_dir.name}: {e}")
+            return False
 
     def run(self):
         users_dir = self.args.in_dir.joinpath(USERS_DIR)
@@ -704,23 +754,36 @@ class CChat2Pdf:
         dirs = list(groups_dir.iterdir())
         num_dirs = len(dirs)
         self.logger.info(f"Found {num_dirs} chats/spaces. Generating output.")
+        
+        # Count successfully processed chats
+        successful_chats = 0
+        
         for i, group_path in enumerate(dirs):
-            if group_path.name.find(DM_PREFIX) == 0:
-                self.logger.debug(f"{group_path.name} is a DM.")
-            elif group_path.name.find(SPACE_PREFIX) == 0:
-                self.logger.debug(f"{group_path.name} is a space.")
-            else:
-                self.logger.warning(
-                    f"{group_path.name} is not a DM or a space. Ignoring."
-                )
-                continue
-            self.CreateOutput(group_path)
+            try:
+                if group_path.name.find(DM_PREFIX) == 0:
+                    self.logger.debug(f"{group_path.name} is a DM.")
+                    if self.CreateOutput(group_path):
+                        successful_chats += 1
+                elif group_path.name.find(SPACE_PREFIX) == 0:
+                    self.logger.debug(f"{group_path.name} is a space.")
+                    if self.CreateOutput(group_path):
+                        successful_chats += 1
+                else:
+                    self.logger.warning(
+                        f"{group_path.name} is not a DM or a space. Ignoring."
+                    )
+                    continue
+            except Exception as e:
+                self.logger.error(f"Error processing {group_path.name}: {e}")
+            
             print(
                 f"\b\b\b\b\b{i * 100 / num_dirs:.0f}%",
                 end="",
                 flush=True,
                 file=sys.stderr,
             )
+        
+        self.logger.info(f"Successfully processed {successful_chats} out of {num_dirs} chats/spaces.")
 
 
 def main():

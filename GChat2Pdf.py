@@ -231,7 +231,7 @@ class CChat2Pdf:
             self.logger.debug("No messages.")
             return
         grp_info_file_path = dm_dir.joinpath(GROUP_INFO_FILE)
-        with open(grp_info_file_path, "r") as inf:
+        with open(grp_info_file_path, "r", encoding = "utf-8") as inf:
             group_info = json.load(inf)
             # Use group name if available; otherwise, default to "Chat"
             title_str = group_info.get("name", "").strip() or "Chat"

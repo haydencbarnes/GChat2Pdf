@@ -15,6 +15,7 @@ from reportlab.lib.units import inch
 from io import BytesIO
 from pillow_heif import register_heif_opener  # heic file reader
 import fitz  # pdf thumbnails
+import os
 
 TRUNC_FILE_NAME = 47  # file names on disk are truncated to this basename (stem)
 
@@ -332,21 +333,22 @@ class CChat2Pdf:
                                 )
                             elif "attached_files" in msg:
                                 for i, f in enumerate(msg["attached_files"]):
-                                    img_file_path = dm_dir.joinpath(f["export_name"])
-                                    fn = (
-                                        img_file_path.stem[:TRUNC_FILE_NAME]
-                                        + img_file_path.suffix
-                                    )
-                                    img_file_path = img_file_path.parent.joinpath(fn)
-                                    if fn not in img_file_names:
-                                        img_file_names[fn] = 1
+                                    if os.name == "nt":
+                                        # Use the original export name without truncation on Windows
+                                        img_file_path = dm_dir.joinpath(f["export_name"])
                                     else:
-                                        img_file_path = img_file_path.parent.joinpath(
-                                            img_file_path.stem
-                                            + f"({img_file_names[fn]})"
-                                            + img_file_path.suffix
-                                        )
-                                        img_file_names[fn] += 1
+                                        img_file_path = dm_dir.joinpath(f["export_name"])
+                                        fn = img_file_path.stem[:TRUNC_FILE_NAME] + img_file_path.suffix
+                                        img_file_path = img_file_path.parent.joinpath(fn)
+                                        if fn not in img_file_names:
+                                            img_file_names[fn] = 1
+                                        else:
+                                            img_file_path = img_file_path.parent.joinpath(
+                                                img_file_path.stem + f"({img_file_names[fn]})" + img_file_path.suffix
+                                            )
+                                            img_file_names[fn] += 1
+
+                                    # Then continue processing the file type...
                                     if img_file_path.suffix.lower() in [
                                         ".jpg",
                                         ".png",
@@ -356,24 +358,15 @@ class CChat2Pdf:
                                         ".gif",
                                         ".eps",
                                     ]:
-                                        doc_components.append(
-                                            self.GetScaledImage(img_file_path)
-                                        )
+                                        doc_components.append(self.GetScaledImage(img_file_path))
                                     elif img_file_path.suffix.lower() in [".pdf"]:
                                         with fitz.open(img_file_path) as doc:
                                             page = doc.load_page(0)
                                             pix = page.get_pixmap()
                                             pix.save(PDF_TMP_FILE)
-                                        doc_components.append(
-                                            self.GetScaledImage(
-                                                PDF_TMP_FILE, img_file_path
-                                            )
-                                        )
+                                        doc_components.append(self.GetScaledImage(PDF_TMP_FILE, img_file_path))
                                     else:
-                                        if (
-                                            img_file_path.suffix
-                                            not in self.unk_file_exts
-                                        ):
+                                        if img_file_path.suffix not in self.unk_file_exts:
                                             suffix = img_file_path.suffix
                                             self.logger.warning(
                                                 f"File extension '{suffix}' without a thumbnail preview found."
@@ -390,8 +383,7 @@ class CChat2Pdf:
                                             Paragraph(
                                                 file_link_str,
                                                 self.style_sheets["MeNormal"]
-                                                if msg["creator"]["name"]
-                                                == self.user_name
+                                                if msg["creator"]["name"] == self.user_name
                                                 else self.style_sheets["OtherNormal"],
                                             )
                                         )

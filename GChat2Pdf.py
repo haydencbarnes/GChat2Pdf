@@ -334,7 +334,7 @@ class CChat2Pdf:
                             elif "attached_files" in msg:
                                 for i, f in enumerate(msg["attached_files"]):
                                     # Always use the original file path for Windows or if the file is a PDF or PNG
-                                    export_name = f["export_name"].strip()  # Strip leading/trailing spaces
+                                    export_name = f["export_name"].strip(" .")  # Strip leading/trailing spaces
                                     if os.name == "nt" or export_name.lower().endswith((".pdf", ".png")):
                                         img_file_path = dm_dir.joinpath(export_name)
                                     else:

@@ -333,8 +333,8 @@ class CChat2Pdf:
                                 )
                             elif "attached_files" in msg:
                                 for i, f in enumerate(msg["attached_files"]):
-                                    if os.name == "nt":
-                                        # Use the original export name without truncation on Windows
+                                    # Always use the original file path for Windows or if the file is a PDF
+                                    if os.name == "nt" or f["export_name"].lower().endswith(".pdf"):
                                         img_file_path = dm_dir.joinpath(f["export_name"])
                                     else:
                                         img_file_path = dm_dir.joinpath(f["export_name"])
@@ -349,17 +349,10 @@ class CChat2Pdf:
                                             img_file_names[fn] += 1
 
                                     # Then continue processing the file type...
-                                    if img_file_path.suffix.lower() in [
-                                        ".jpg",
-                                        ".png",
-                                        ".jpeg",
-                                        ".heic",
-                                        ".gif",
-                                        ".eps",
-                                    ]:
+                                    if img_file_path.suffix.lower() in [".jpg", ".png", ".jpeg", ".heic", ".gif", ".eps"]:
                                         doc_components.append(self.GetScaledImage(img_file_path))
                                     elif img_file_path.suffix.lower() == ".pdf":
-                                        # 1) Check if the file even exists on disk
+                                        # Check file existence before trying to generate a thumbnail
                                         if not img_file_path.exists():
                                             self.logger.warning(f"PDF file not found: {img_file_path}. Adding file link instead.")
                                             file_link_str = (
@@ -372,13 +365,11 @@ class CChat2Pdf:
                                             doc_components.append(
                                                 Paragraph(
                                                     file_link_str,
-                                                    self.style_sheets["MeNormal"]
-                                                    if msg["creator"]["name"] == self.user_name
+                                                    self.style_sheets["MeNormal"] if msg["creator"]["name"] == self.user_name
                                                     else self.style_sheets["OtherNormal"],
                                                 )
                                             )
                                         else:
-                                            # 2) If the file exists, proceed with opening and thumbnail generation
                                             try:
                                                 with fitz.open(img_file_path) as doc:
                                                     page = doc.load_page(0)
@@ -387,7 +378,6 @@ class CChat2Pdf:
                                                 doc_components.append(self.GetScaledImage(PDF_TMP_FILE, img_file_path))
                                             except Exception as e:
                                                 self.logger.warning(f"Could not open PDF for thumbnail: {e}")
-                                                # Fall back to attaching a file link
                                                 file_link_str = (
                                                     '<u>File attached:</u> <link href="'
                                                     + str(img_file_path)
@@ -398,11 +388,29 @@ class CChat2Pdf:
                                                 doc_components.append(
                                                     Paragraph(
                                                         file_link_str,
-                                                        self.style_sheets["MeNormal"]
-                                                        if msg["creator"]["name"] == self.user_name
+                                                        self.style_sheets["MeNormal"] if msg["creator"]["name"] == self.user_name
                                                         else self.style_sheets["OtherNormal"],
                                                     )
                                                 )
+                                    else:
+                                        if img_file_path.suffix not in self.unk_file_exts:
+                                            suffix = img_file_path.suffix
+                                            self.logger.warning(f"File extension '{suffix}' without a thumbnail preview found.")
+                                            self.unk_file_exts.add(suffix)
+                                        file_link_str = (
+                                            '<u>File attached:</u> <link href="'
+                                            + str(img_file_path)
+                                            + '">'
+                                            + img_file_path.name
+                                            + "</link>"
+                                        )
+                                        doc_components.append(
+                                            Paragraph(
+                                                file_link_str,
+                                                self.style_sheets["MeNormal"] if msg["creator"]["name"] == self.user_name
+                                                else self.style_sheets["OtherNormal"],
+                                            )
+                                        )
                             elif "annotations" in msg:
                                 if "video_call_metadata" in msg["annotations"][0]:
                                     doc_components.append(

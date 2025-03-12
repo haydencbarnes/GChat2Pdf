@@ -243,27 +243,55 @@ class CChat2Pdf:
             self.logger.debug("No messages.")
             return
         grp_info_file_path = dm_dir.joinpath(GROUP_INFO_FILE)
-        with open(grp_info_file_path, "r", encoding = "utf-8") as inf:
+        
+        # Generate a unique ID for this chat based on directory name
+        chat_id = dm_dir.name.replace(" ", "_")[:10]  # Use first 10 chars for brevity
+        
+        with open(grp_info_file_path, "r", encoding="utf-8") as inf:
             group_info = json.load(inf)
             # Use group name if available; otherwise, default to "Chat"
             title_str = group_info.get("name", "").strip() or "Chat"
-            file_name = title_str + " with"
+            
+            # Keep track of unique participants to avoid duplicates
+            unique_participants = set()
+            unique_participants.add(self.user_name)  # Add yourself
+            
+            # Build participants string and collect unique names
             participants_str = f"<u>Participants:</u><br />\t{self.user_name} ({self.user_email})<br />"
+            
+            # Process all members, including anonymous ones
             for participant in group_info.get("members", []):
                 if isinstance(participant, dict):
-                    # Only default to "Anonymous User" if no name is provided.
+                    # Only default to "Anonymous User" if no name is provided
                     name = participant.get("name") or "Anonymous User"
-                    email = participant.get("email")
+                    email = participant.get("email", "")
                 else:
                     name = "Anonymous User"
-                    email = None
-                if name != self.user_name:
-                    participants_str += (
-                        f"\t{name}" + (f" ({email})" if email else "") + "<br />"
-                    )
-                    if len(file_name) + len(name) + 1 < self.args.max_filename_len:
-                        file_name += f" {name},"
-            file_name = file_name[:-1] + ".pdf"
+                    email = ""
+                
+                # Skip yourself (already added)
+                if name == self.user_name:
+                    continue
+                    
+                # Add to participants string if not already included
+                if name not in unique_participants:
+                    unique_participants.add(name)
+                    participants_str += f"\t{name}" + (f" ({email})" if email else "") + "<br />"
+            
+            # Create a unique filename that includes chat ID and participant count
+            other_count = len(unique_participants) - 1  # Exclude yourself
+            
+            if other_count == 0:
+                # Handle case where you're the only participant (notes to self)
+                file_name = f"{title_str} (notes-{chat_id}).pdf"
+            elif other_count == 1:
+                # For 1-on-1 chats, include the other person's name
+                other_name = next(name for name in unique_participants if name != self.user_name)
+                file_name = f"{title_str} with {other_name} ({chat_id}).pdf"
+            else:
+                # For group chats, include the count of participants
+                file_name = f"{title_str} with {other_count} others ({chat_id}).pdf"
+            
             participants_str = participants_str.replace("\t", "&nbsp;" * 5)
 
         file_created = False

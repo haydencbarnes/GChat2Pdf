@@ -334,10 +334,11 @@ class CChat2Pdf:
                             elif "attached_files" in msg:
                                 for i, f in enumerate(msg["attached_files"]):
                                     # Always use the original file path for Windows or if the file is a PDF or PNG
-                                    if os.name == "nt" or f["export_name"].lower().endswith((".pdf", ".png")):
-                                        img_file_path = dm_dir.joinpath(f["export_name"])
+                                    export_name = f["export_name"].strip()  # Strip leading/trailing spaces
+                                    if os.name == "nt" or export_name.lower().endswith((".pdf", ".png")):
+                                        img_file_path = dm_dir.joinpath(export_name)
                                     else:
-                                        img_file_path = dm_dir.joinpath(f["export_name"])
+                                        img_file_path = dm_dir.joinpath(export_name)
                                         fn = img_file_path.stem[:TRUNC_FILE_NAME] + img_file_path.suffix
                                         img_file_path = img_file_path.parent.joinpath(fn)
                                         if fn not in img_file_names:

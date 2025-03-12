@@ -125,26 +125,38 @@ class CChat2Pdf:
         self.logger.info("Init success.")
 
     def GetScaledImage(self, img_path_url, orig_path_url=None):
-        img = rlutils.ImageReader(img_path_url)
-        iw, ih = img.getSize()
-        aspect = ih / float(iw)
-        if ih > self.args.max_img_height_in * inch:  # shrink height first
-            ih = self.args.max_img_height_in * inch
-            iw = ih / aspect
-        if (
-            iw > self.page_width - 1.5 * inch
-        ):  # shrink width if needed (1.5 is the left+right margins)
-            iw = self.page_width - 1.5 * inch
-            ih = iw * aspect
-        if orig_path_url is None:
-            orig_path_url = img_path_url
-        return HyperlinkedImage(
-            img_path_url,
-            hyperlink=str(orig_path_url),
-            width=iw,
-            height=ih,
-            hAlign="CENTER",
-        )
+        # Convert Path objects to strings to avoid 'WindowsPath' object is not subscriptable error
+        if isinstance(img_path_url, Path):
+            img_path_url = str(img_path_url)
+        
+        try:
+            img = rlutils.ImageReader(img_path_url)
+            iw, ih = img.getSize()
+            aspect = ih / float(iw)
+            if ih > self.args.max_img_height_in * inch:  # shrink height first
+                ih = self.args.max_img_height_in * inch
+                iw = ih / aspect
+            if (
+                iw > self.page_width - 1.5 * inch
+            ):  # shrink width if needed (1.5 is the left+right margins)
+                iw = self.page_width - 1.5 * inch
+                ih = iw * aspect
+            if orig_path_url is None:
+                orig_path_url = img_path_url
+            elif isinstance(orig_path_url, Path):
+                orig_path_url = str(orig_path_url)
+            
+            return HyperlinkedImage(
+                img_path_url,
+                hyperlink=str(orig_path_url),
+                width=iw,
+                height=ih,
+                hAlign="CENTER",
+            )
+        except Exception as e:
+            self.logger.warning(f"Error in GetScaledImage: {e}")
+            raise
+
 
     def preprocess_text(self, text):
         """
@@ -333,44 +345,62 @@ class CChat2Pdf:
                                 )
                             elif "attached_files" in msg:
                                 for i, f in enumerate(msg["attached_files"]):
-                                    # Always use the original file path for Windows or if the file is a PDF or PNG
-                                    export_name = f["export_name"].strip(" .")  # Strip leading/trailing spaces
-                                    if os.name == "nt" or export_name.lower().endswith((".pdf", ".png")):
+                                    try:
+                                        # Get the export name and strip any leading/trailing spaces and periods
+                                        export_name = f["export_name"].strip(" .")
+                                        
+                                        # First try the direct path
                                         img_file_path = dm_dir.joinpath(export_name)
-                                    else:
-                                        img_file_path = dm_dir.joinpath(export_name)
-                                        fn = img_file_path.stem[:TRUNC_FILE_NAME] + img_file_path.suffix
-                                        img_file_path = img_file_path.parent.joinpath(fn)
-                                        if fn not in img_file_names:
-                                            img_file_names[fn] = 1
-                                        else:
-                                            img_file_path = img_file_path.parent.joinpath(
-                                                img_file_path.stem + f"({img_file_names[fn]})" + img_file_path.suffix
-                                            )
-                                            img_file_names[fn] += 1
-
-                                    # Then continue processing the file type...
-                                    if img_file_path.suffix.lower() in [".jpg", ".png", ".jpeg", ".heic", ".gif", ".eps"]:
-                                        doc_components.append(self.GetScaledImage(img_file_path))
-                                    elif img_file_path.suffix.lower() == ".pdf":
-                                        # Check file existence before trying to generate a thumbnail
+                                        
+                                        # If the file doesn't exist, try with the truncated filename
+                                        if not img_file_path.exists() and len(export_name) > TRUNC_FILE_NAME:
+                                            # Try with truncated filename (Google Takeout often truncates filenames)
+                                            truncated_name = export_name[:TRUNC_FILE_NAME] + export_name[export_name.rfind('.'):]
+                                            alt_path = dm_dir.joinpath(truncated_name)
+                                            if alt_path.exists():
+                                                img_file_path = alt_path
+                                                self.logger.debug(f"Using truncated filename: {truncated_name}")
+                                        
+                                        # Check if file exists before processing
                                         if not img_file_path.exists():
-                                            self.logger.warning(f"PDF file not found: {img_file_path}. Adding file link instead.")
-                                            file_link_str = (
-                                                '<u>File attached:</u> <link href="'
-                                                + str(img_file_path)
-                                                + '">'
-                                                + img_file_path.name
-                                                + "</link>"
-                                            )
-                                            doc_components.append(
-                                                Paragraph(
-                                                    file_link_str,
-                                                    self.style_sheets["MeNormal"] if msg["creator"]["name"] == self.user_name
-                                                    else self.style_sheets["OtherNormal"],
+                                            # Try to find the file by searching for similar filenames
+                                            potential_files = list(dm_dir.glob(f"*{img_file_path.suffix}"))
+                                            matching_files = [f for f in potential_files if export_name in f.name or f.name in export_name]
+                                            
+                                            if matching_files:
+                                                img_file_path = matching_files[0]
+                                                self.logger.debug(f"Found alternative file: {img_file_path.name}")
+                                            else:
+                                                # If file still not found, add a file link instead
+                                                file_link_str = (
+                                                    f'<u>File attachment not found:</u> {export_name}'
                                                 )
-                                            )
-                                        else:
+                                                doc_components.append(
+                                                    Paragraph(
+                                                        file_link_str,
+                                                        self.style_sheets["MeNormal"] if msg["creator"]["name"] == self.user_name
+                                                        else self.style_sheets["OtherNormal"],
+                                                    )
+                                                )
+                                                continue  # Skip to next file
+                                        
+                                        # Process the file based on its type
+                                        if img_file_path.suffix.lower() in [".jpg", ".png", ".jpeg", ".heic", ".gif", ".eps"]:
+                                            try:
+                                                doc_components.append(self.GetScaledImage(img_file_path))
+                                            except Exception as e:
+                                                self.logger.warning(f"Error processing image {img_file_path}: {e}")
+                                                file_link_str = (
+                                                    f'<u>File attachment (error processing):</u> {export_name}'
+                                                )
+                                                doc_components.append(
+                                                    Paragraph(
+                                                        file_link_str,
+                                                        self.style_sheets["MeNormal"] if msg["creator"]["name"] == self.user_name
+                                                        else self.style_sheets["OtherNormal"],
+                                                    )
+                                                )
+                                        elif img_file_path.suffix.lower() == ".pdf":
                                             try:
                                                 with fitz.open(img_file_path) as doc:
                                                     page = doc.load_page(0)
@@ -393,18 +423,28 @@ class CChat2Pdf:
                                                         else self.style_sheets["OtherNormal"],
                                                     )
                                                 )
-                                    else:
-                                        if img_file_path.suffix not in self.unk_file_exts:
-                                            suffix = img_file_path.suffix
-                                            self.logger.warning(f"File extension '{suffix}' without a thumbnail preview found.")
-                                            self.unk_file_exts.add(suffix)
-                                        file_link_str = (
-                                            '<u>File attached:</u> <link href="'
-                                            + str(img_file_path)
-                                            + '">'
-                                            + img_file_path.name
-                                            + "</link>"
-                                        )
+                                        else:
+                                            if img_file_path.suffix not in self.unk_file_exts:
+                                                suffix = img_file_path.suffix
+                                                self.logger.warning(f"File extension '{suffix}' without a thumbnail preview found.")
+                                                self.unk_file_exts.add(suffix)
+                                            file_link_str = (
+                                                '<u>File attached:</u> <link href="'
+                                                + str(img_file_path)
+                                                + '">'
+                                                + img_file_path.name
+                                                + "</link>"
+                                            )
+                                            doc_components.append(
+                                                Paragraph(
+                                                    file_link_str,
+                                                    self.style_sheets["MeNormal"] if msg["creator"]["name"] == self.user_name
+                                                    else self.style_sheets["OtherNormal"],
+                                                )
+                                            )
+                                    except Exception as e:
+                                        self.logger.warning(f"Error processing attachment: {e}")
+                                        file_link_str = f'<u>Error processing attachment:</u> {str(e)}'
                                         doc_components.append(
                                             Paragraph(
                                                 file_link_str,

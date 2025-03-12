@@ -354,7 +354,6 @@ class CChat2Pdf:
                                         ".png",
                                         ".jpeg",
                                         ".heic",
-                                        ".dng",
                                         ".gif",
                                         ".eps",
                                     ]:

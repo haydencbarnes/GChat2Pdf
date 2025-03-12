@@ -546,13 +546,66 @@ class CChat2Pdf:
                                             f"Unknown type under gsuite_integration_metadata. Message (complete):\n{msg}"
                                         )
                                 elif "url_metadata" in msg["annotations"][0]:
-                                    doc_components.append(
-                                        self.GetScaledImage(
-                                            msg["annotations"][0]["url_metadata"][
-                                                "image_url"
-                                            ]
+                                    try:
+                                        # Check if image_url exists in the metadata
+                                        if "image_url" in msg["annotations"][0]["url_metadata"]:
+                                            image_url = msg["annotations"][0]["url_metadata"]["image_url"]
+                                            
+                                            # Skip broken Google proxy URLs
+                                            if "googleusercontent.com/proxy" in image_url:
+                                                # Add a text link instead of trying to load the image
+                                                url_title = msg["annotations"][0]["url_metadata"].get("title", "Link")
+                                                url_link = msg["annotations"][0]["url_metadata"].get("url", image_url)
+                                                
+                                                url_link_str = f'<u>URL shared:</u> <link href="{url_link}">{url_title}</link>'
+                                                doc_components.append(
+                                                    Paragraph(
+                                                        url_link_str,
+                                                        self.style_sheets["MeNormal"] if msg["creator"]["name"] == self.user_name
+                                                        else self.style_sheets["OtherNormal"],
+                                                    )
+                                                )
+                                            else:
+                                                # Try to load the image
+                                                try:
+                                                    doc_components.append(self.GetScaledImage(image_url))
+                                                except Exception as e:
+                                                    self.logger.warning(f"Could not load image from URL {image_url}: {e}")
+                                                    # Fall back to text link
+                                                    url_title = msg["annotations"][0]["url_metadata"].get("title", "Link")
+                                                    url_link = msg["annotations"][0]["url_metadata"].get("url", image_url)
+                                                    
+                                                    url_link_str = f'<u>URL shared (image unavailable):</u> <link href="{url_link}">{url_title}</link>'
+                                                    doc_components.append(
+                                                        Paragraph(
+                                                            url_link_str,
+                                                            self.style_sheets["MeNormal"] if msg["creator"]["name"] == self.user_name
+                                                            else self.style_sheets["OtherNormal"],
+                                                        )
+                                                    )
+                                        else:
+                                            # No image URL, just add a text link
+                                            url_title = msg["annotations"][0]["url_metadata"].get("title", "Link")
+                                            url_link = msg["annotations"][0]["url_metadata"].get("url", "#")
+                                            
+                                            url_link_str = f'<u>URL shared:</u> <link href="{url_link}">{url_title}</link>'
+                                            doc_components.append(
+                                                Paragraph(
+                                                    url_link_str,
+                                                    self.style_sheets["MeNormal"] if msg["creator"]["name"] == self.user_name
+                                                    else self.style_sheets["OtherNormal"],
+                                                )
+                                            )
+                                    except Exception as e:
+                                        self.logger.warning(f"Error processing URL metadata: {e}")
+                                        url_link_str = f'<u>URL shared (error processing):</u> {str(e)}'
+                                        doc_components.append(
+                                            Paragraph(
+                                                url_link_str,
+                                                self.style_sheets["MeNormal"] if msg["creator"]["name"] == self.user_name
+                                                else self.style_sheets["OtherNormal"],
+                                            )
                                         )
-                                    )
                                 elif "drive_metadata" in msg["annotations"][0]:
                                     doc_components.append(
                                         Paragraph(

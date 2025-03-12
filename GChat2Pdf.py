@@ -358,12 +358,30 @@ class CChat2Pdf:
                                         ".eps",
                                     ]:
                                         doc_components.append(self.GetScaledImage(img_file_path))
-                                    elif img_file_path.suffix.lower() in [".pdf"]:
-                                        with fitz.open(img_file_path) as doc:
-                                            page = doc.load_page(0)
-                                            pix = page.get_pixmap()
-                                            pix.save(PDF_TMP_FILE)
-                                        doc_components.append(self.GetScaledImage(PDF_TMP_FILE, img_file_path))
+                                    elif img_file_path.suffix.lower() == ".pdf":
+                                        try:
+                                            with fitz.open(img_file_path) as doc:
+                                                page = doc.load_page(0)
+                                                pix = page.get_pixmap()
+                                                pix.save(PDF_TMP_FILE)
+                                            doc_components.append(self.GetScaledImage(PDF_TMP_FILE, img_file_path))
+                                        except FileNotFoundError as e:
+                                            self.logger.warning(f"PDF file not found: {img_file_path}. Adding file link instead.")
+                                            file_link_str = (
+                                                '<u>File attached:</u> <link href="'
+                                                + str(img_file_path)
+                                                + '">'
+                                                + img_file_path.name
+                                                + "</link>"
+                                            )
+                                            doc_components.append(
+                                                Paragraph(
+                                                    file_link_str,
+                                                    self.style_sheets["MeNormal"]
+                                                    if msg["creator"]["name"] == self.user_name
+                                                    else self.style_sheets["OtherNormal"],
+                                                )
+                                            )
                                     else:
                                         if img_file_path.suffix not in self.unk_file_exts:
                                             suffix = img_file_path.suffix
